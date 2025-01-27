@@ -71,19 +71,26 @@ impl Iterator for DirWalker {
     }
 }
 
-fn count_nested_dirs(dir: &Path, skip_name_match: bool) -> Result<usize, std::io::Error> {
+fn count_nested_dirs(dir: &Path, skip_name_match: bool) -> Result<usize, Box<dyn std::error::Error>> {
     let parent_name = dir.file_name().unwrap_or_else(|| {
         log::error!("Failed to get file name for {:?}", dir);
         return OsStr::new("");
     });
-    let read_dir = fs::read_dir(dir)?;
-    let count = read_dir
-    .filter_map(|r| r.ok())
+    let count = list_nested_items(dir)?
+    .filter(|r| r.is_dir())
     .filter(|r| !skip_name_match || {
-        r.path().file_name().unwrap() == parent_name
+        r.as_path().file_name().unwrap() == parent_name
     })
     .count();
     Ok(count)
+}
+
+// Returns an iterator over the nested items in the directory.
+fn list_nested_items(dir: &Path) -> Result<impl Iterator<Item = PathBuf>, Box<dyn std::error::Error>> {
+    let items = fs::read_dir(dir)?
+    .filter_map(|r| r.ok())
+    .map(|r| r.path());
+    Ok(items)
 }
 
 
@@ -121,34 +128,13 @@ pub fn fix_nested_directories(
 fn unnest(from_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     //TODO add guard that checks that from_dir is a directory
     log::info!("Moving contents to {:?}", from_dir);
-    fs::read_dir(from_dir)
-    .and_then(|dir| {
-        dir.into_iter()
-        .filter_map(|e| e.ok())
-        .try_for_each(|entry| {
-            log::info!("Moving {:?} to {:?}", entry.path(), from_dir.parent().unwrap().join(entry.file_name()));
-            fs::rename(&entry.path(), from_dir.parent().unwrap().join(entry.file_name()))?;
-            Ok(())
-            // let entry_path = d.path();
-            // let parent = from_dir.parent().ok_or("Failed to get parent path")?;
-            // let file_name = entry_path.file_name().ok_or("Failed to get file name")?;
-            // log::debug!("Moving {:?} to {:?}", entry_path, parent.join(file_name));
-            // fs::rename(&entry_path, parent.join(file_name)).await?;
-        })
-    })
-       .
-    // let mut read_dir = fs::read_dir(from_dir).await?;
-    // while let Some(entry) = fs::read_dir(from_dir).await?.next_entry().await? {
-    //     let entry_path = entry.path();
-    //     let parent = from_dir.parent().ok_or("Failed to get parent path")?;
-    //     let file_name = entry_path.file_name().ok_or("Failed to get file name")?;
-    //     log::debug!("Moving {:?} to {:?}", entry_path, parent.join(file_name));
-    //     fs::rename(&entry_path, parent.join(file_name)).await?;
-    // }
-    // // remove directory if it's now empty
-    // if fs::read_dir(from_dir).await?.next_entry().await?.is_none() {
-    //     fs::remove_dir(from_dir).await?;
-    // }
+    list_nested_items(from_dir)?
+    .try_for_each(|entry| {
+        let dst = from_dir.parent().unwrap().join(entry.file_name());
+        log::info!("Moving {:?} to {:?}", entry, dst);
+        fs::rename(&entry, dst)?;
+        Ok(())
+    })?;
     Ok(())
 } 
 
