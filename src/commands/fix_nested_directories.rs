@@ -1,4 +1,4 @@
-use std::{error::Error, fs, io::Error, path::{Iter, Path, PathBuf}};
+use std::{error::Error, ffi::OsStr, fs, io::Error, path::{Iter, Path, PathBuf}};
 use futures::stream::{Stream, StreamExt};
 use std::pin::Pin;
 
@@ -72,15 +72,16 @@ impl Iterator for DirWalker {
 }
 
 fn count_nested_dirs(dir: &Path, skip_name_match: bool) -> Result<usize, std::io::Error> {
-    let parent_name = dir.file_name()?;
+    let parent_name = dir.file_name().unwrap_or_else(|| {
+        log::error!("Failed to get file name for {:?}", dir);
+        return OsStr::new("");
+    });
     let read_dir = fs::read_dir(dir)?;
     let count = read_dir
     .filter_map(|r| r.ok())
     .filter(|r| !skip_name_match || {
-        let nested_name = r.path().file_name().unwrap();
-        nested_name == parent_name
+        r.path().file_name().unwrap() == parent_name
     })
-    .fore
     .count();
     Ok(count)
 }
@@ -126,6 +127,7 @@ fn unnest(from_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
         .filter_map(|e| e.ok())
         .try_for_each(|entry| {
             log::info!("Moving {:?} to {:?}", entry.path(), from_dir.parent().unwrap().join(entry.file_name()));
+            fs::rename(&entry.path(), from_dir.parent().unwrap().join(entry.file_name()))?;
             Ok(())
             // let entry_path = d.path();
             // let parent = from_dir.parent().ok_or("Failed to get parent path")?;
