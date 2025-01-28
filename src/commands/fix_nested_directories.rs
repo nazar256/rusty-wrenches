@@ -1,32 +1,4 @@
-use std::{error::Error, ffi::OsStr, fs, io::Error, path::{Iter, Path, PathBuf}};
-use futures::stream::{Stream, StreamExt};
-use std::pin::Pin;
-
-// fn walk_dirs(dir: &Path) -> Pin<Box<dyn Stream<Item = Result<fs::DirEntry, std::io::Error>> + '_>> {
-//     Box::pin(try_stream! {
-//         let mut read_dir = fs::read_dir(dir).await?;
-//         while let Some(entry) = read_dir.next_entry().await? {
-//             let path = entry.path();
-//             if path.is_dir() {
-//                 log::debug!("Found directory: {:?}", path);
-//                 yield entry;
-//                 let mut subdir_stream = walk_dirs(&path);
-//                 while let Some(subentry) = subdir_stream.next().await {
-//                     yield subentry?;
-//                 }
-//             }
-//         }
-//     })
-// }
-
-// fn walk_dirs_simple(dir: &Path) -> Result<Iter<Path>, std::io::Error> {
-//     let paths = fs::read_dir(dir)?
-//     .filter(|r| r.is_ok())
-//     .map(|r| r.unwrap())
-//     .filter(|r| r.file_type().unwrap().is_dir())
-//     .map(|r| r.path());
-//     Ok(read_dir)
-// }
+use std::{error::Error, ffi::OsStr, fs, io, path::{Path, PathBuf}};
 
 /// Simple DFS directory iterator.
 struct DirWalker {
@@ -97,43 +69,29 @@ fn list_nested_items(dir: &Path) -> Result<impl Iterator<Item = PathBuf>, Box<dy
 pub fn fix_nested_directories(
     path: &Path,
     skip_name_match: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     log::info!("Starting to fix nested directories");
 
     DirWalker::new(path)?
-    .filter(|path| count_nested_dirs(path, skip_name_match).unwrap() == 1)
+    .filter(|path| count_nested_dirs(path, skip_name_match).unwrap_or(0) == 1)
     .try_for_each(|r| {
         unnest(&r)
-    });
-    
-    // while let Some(entry) = stream.next().await {
-    //     let dir = entry?;
-    //     log::debug!("Checking if {:?} has only one nested directory", dir.path());
-    //     let entries = ReadDirStream::new(fs::read_dir(dir.path()).await?)
-    //     .map(|r| r.unwrap())
-    //     .map(|r| r.path()) // This is safe, since we only have the Ok variants
-    //     .filter(|r| r.is_dir()) // Filter out non-folders
-    //     .collect::<Vec<_>>();
-    //     if entries.len() == 1 {
-    //         let nested_dir = entries.first().unwrap().path();
-    //         log::debug!("Found nested directory: {:?}", nested_dir);
-    //     }
-    //     if skip_name_match || dir.file_name() == dir.path().parent().unwrap().file_name().unwrap() {
-    //         move_contents_to_parent(&dir.path()).await?;
-    //     }
-    // }
-    Ok(())
+    })
 }
 
-fn unnest(from_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn unnest(from_dir: &Path) -> Result<(), Box<dyn Error>> {
     //TODO add guard that checks that from_dir is a directory
+    let parent = from_dir.parent()
+    .ok_or(io::Error::new(io::ErrorKind::Other, "Failed to get parent directory"))?;
     log::info!("Moving contents to {:?}", from_dir);
     list_nested_items(from_dir)?
-    .try_for_each(|entry| {
-        let dst = from_dir.parent().unwrap().join(entry.file_name());
-        log::info!("Moving {:?} to {:?}", entry, dst);
-        fs::rename(&entry, dst)?;
-        Ok(())
+    .try_for_each(|src| {
+        let src_filename = src.file_name()
+            .ok_or(io::Error::new(io::ErrorKind::Other, "Failed to get file name"))?;
+        let dst = parent.join(src_filename);
+        log::info!("Moving {:?} to {:?}", src, dst);
+
+        fs::rename(&src, dst)
     })?;
     Ok(())
 } 
@@ -145,17 +103,16 @@ mod tests {
     use super::*;
     use std::env::temp_dir;
     use rand::random;
-    use tokio::fs;
 
-    async fn setup_test_dir(nested_name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    fn setup_test_dir(nested_name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
         let temp = temp_dir().join(format!("test_{}", random::<u32>()));
         let nested = temp.join("nested");
         let subdir = nested.join(nested_name);
         // let _ = subdir.join("another_nested");
         let file = subdir.join("file.txt");
 
-        fs::create_dir_all(&subdir).await.unwrap();
-        fs::write(&file, "test content").await.unwrap();
+        fs::create_dir_all(&subdir).unwrap();
+        fs::write(&file, "test content").unwrap();
         
         (temp, file)
     }
@@ -167,35 +124,35 @@ mod tests {
         expect_moved: bool,
     }
 
-    #[tokio::test]
-    async fn test_fix_nested_directories() {
+    #[test]
+    fn test_fix_nested_directories() {
         init_logging();
         
         let test_cases = vec![
-            // TestCase {
-            //     name: "should not move files when skip_name_match is false and names don't match",
-            //     skip_name_match: false,
-            //     nested_dir_name: "subdir",
-            //     expect_moved: false,
-            // },
+            TestCase {
+                name: "should not move files when skip_name_match is false and names don't match",
+                skip_name_match: false,
+                nested_dir_name: "subdir",
+                expect_moved: false,
+            },
             TestCase {
                 name: "should move files when skip_name_match is true",
                 skip_name_match: true,
                 nested_dir_name: "subdir",
                 expect_moved: true,
             },
-            // TestCase {
-            //     name: "should move files when names match even if skip_name_match is false",
-            //     skip_name_match: false,
-            //     nested_dir_name: "nested",
-            //     expect_moved: true,
-            // },
+            TestCase {
+                name: "should move files when names match even if skip_name_match is false",
+                skip_name_match: false,
+                nested_dir_name: "nested",
+                expect_moved: true,
+            },
         ];
 
         for tc in test_cases {
-            let (temp_dir, original_file) = setup_test_dir(tc.nested_dir_name).await;
+            let (temp_dir, original_file) = setup_test_dir(tc.nested_dir_name);
             
-            fix_nested_directories(&temp_dir, tc.skip_name_match).await.unwrap();
+            fix_nested_directories(&temp_dir, tc.skip_name_match).unwrap();
             
             let expected_path = if tc.expect_moved {
                 temp_dir.join("nested").join("file.txt")
@@ -204,7 +161,7 @@ mod tests {
             };
 
             assert!(
-                fs::try_exists(&expected_path).await.unwrap(),
+                fs::exists(&expected_path).unwrap(),
                 "{}: file should exist at {:?}",
                 tc.name,
                 expected_path
@@ -212,13 +169,13 @@ mod tests {
 
             if tc.expect_moved {
                 assert!(
-                    !fs::try_exists(&original_file).await.unwrap(),
+                    !fs::exists(&original_file).unwrap(),
                     "{}: original file should not exist at {:?}",
                     tc.name,
                     original_file
                 );
                 assert!(
-                    !fs::try_exists(&temp_dir.join("nested")).await.unwrap(),
+                    !fs::exists(&temp_dir.join("nested")).unwrap(),
                     "{}: nested directory should not exist at {:?}",
                     tc.name,
                     temp_dir.join("nested")
@@ -226,7 +183,7 @@ mod tests {
             }
             
 
-            fs::remove_dir_all(temp_dir).await.unwrap();
+            fs::remove_dir_all(temp_dir).unwrap();
         }
     }
 }
