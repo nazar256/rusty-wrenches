@@ -1,6 +1,6 @@
-pub fn init_logging() {
+pub fn init_logging(level: log::LevelFilter) {
     let _ = env_logger::builder()
-            .filter_level(log::LevelFilter::Debug)
+            .filter_level(level)
             .is_test(true)
             .init();
 }
