@@ -41,10 +41,10 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: check
-      - name: Cargo lint
+      - name: Cargo clippy
         uses: actions-rs/cargo@v1
         with:
-          command: lint
+          command: clippy -- -D warnings
       - name: Cargo test
         uses: actions-rs/cargo@v1
         with:
