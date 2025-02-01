@@ -27,6 +27,7 @@ jobs:
           profile: minimal
           override: true
           target: ${{ env.TEST_TARGET }}
+          components: rustfmt, clippy, audit, test
       - uses: actions/cache@v3
         with:
           path: |
@@ -128,3 +129,5 @@ jobs:
           allowUpdates: true
           artifacts: "mqdish*.tar.gz,checksums.${{ matrix.rust_target }}.txt"
           artifactContentType: application/gzip
+          name: ${{ env.RELEASE_VERSION }}
+          tag: ${{ env.RELEASE_VERSION }}
