@@ -217,8 +217,7 @@ mod tests {
                     original_file
                 );
                 assert!(
-                    !fs::exists(&temp_dir.join(CONTENTS_DIR_NAME).join(tc.nested_dir_name))
-                        .unwrap(),
+                    !fs::exists(temp_dir.join(CONTENTS_DIR_NAME).join(tc.nested_dir_name)).unwrap(),
                     "{}: nested directory should not exist at {:?}",
                     tc.name,
                     temp_dir.join(CONTENTS_DIR_NAME).join(tc.nested_dir_name)

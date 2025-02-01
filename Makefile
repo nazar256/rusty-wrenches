@@ -48,7 +48,7 @@ fmt:
 	$(CARGO) fmt
 
 lint:
-	$(CARGO) clippy  -- -D warnings
+	$(CARGO) clippy --all-targets --all-features -- -D warnings
 
 audit:
 	cargo audit
