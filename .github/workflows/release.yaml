@@ -21,13 +21,6 @@ jobs:
       TEST_TARGET: x86_64-unknown-linux-musl
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-          target: ${{ env.TEST_TARGET }}
-          components: clippy
       - uses: actions/cache@v3
         with:
           path: |
@@ -37,6 +30,13 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ env.TEST_TARGET }}
+          components: clippy
       - name: Cargo check
         uses: actions-rs/cargo@v1
         with:
