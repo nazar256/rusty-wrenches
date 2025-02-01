@@ -27,7 +27,7 @@ jobs:
           profile: minimal
           override: true
           target: ${{ env.TEST_TARGET }}
-          components: rustfmt, clippy, audit, test
+          components: rustfmt, clippy, cargo-audit
       - uses: actions/cache@v3
         with:
           path: |
