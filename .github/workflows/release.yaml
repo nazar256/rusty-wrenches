@@ -21,7 +21,7 @@ jobs:
       TEST_TARGET: x86_64-unknown-linux-musl
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -120,7 +120,7 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           allowUpdates: true
-          artifacts: "mqdish*.tar.gz,checksums.${{ matrix.rust_target }}.txt"
+          artifacts: "${{ env.PACKAGE_NAME }}.tar.gz,checksums.${{ matrix.rust_target }}.txt"
           artifactContentType: application/gzip
           name: ${{ env.RELEASE_VERSION }}
           tag: ${{ env.RELEASE_VERSION }}
