@@ -40,10 +40,8 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: check
-      - name: Cargo clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy -- -D warnings
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Cargo test
         uses: actions-rs/cargo@v1
         with:
