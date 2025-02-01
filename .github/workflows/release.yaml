@@ -1,0 +1,130 @@
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release version to use'
+        required: false
+        type: string
+  push:
+    tags:
+      - '*'
+env:
+  RELEASE_VERSION: ${{inputs.release_version || github.ref_name }}
+  PACKAGE_NAME: rusty-wrenches
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      TEST_TARGET: x86_64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ env.TEST_TARGET }}
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cargo check
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+      - name: Cargo lint
+        uses: actions-rs/cargo@v1
+        with:
+          command: lint
+      - name: Cargo audit
+        uses: actions-rs/cargo@v1
+        with:
+          command: audit
+      - name: Cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: write
+      packages: write
+    strategy:
+      fail-fast: false  # Continue with other targets if one fails
+      matrix:
+        include:
+          - rust_target: aarch64-unknown-linux-musl
+            docker_platform: linux/arm64/v8
+          - rust_target: armv7-unknown-linux-musleabihf
+            docker_platform: linux/arm/v7
+          - rust_target: arm-unknown-linux-musleabi
+            docker_platform: linux/arm/v6
+          - rust_target: powerpc64le-unknown-linux-gnu
+            docker_platform: linux/ppc64le
+          - rust_target: x86_64-unknown-linux-musl
+            docker_platform: linux/amd64
+          - rust_target: i686-unknown-linux-musl
+            docker_platform: linux/386
+          - rust_target: s390x-unknown-linux-gnu
+            docker_platform: linux/s390x
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools libssl-dev
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.rust_target }}
+
+      - name: Cache cross dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/.crates.toml
+          key: ${{ runner.os }}-cross-${{ matrix.rust_target }}-${{ hashFiles('**/Cross.toml') }}
+
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ matrix.rust_target }}
+
+      - name: Build binaries
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: ${{ matrix.rust_target != 'x86_64-unknown-linux-musl' }}
+          command: build
+          args: --release --target ${{ matrix.rust_target }} --all-targets
+
+      - name: Compress artifacts
+        run: |
+          cd target/${{ matrix.rust_target }}/release/
+          tar -czvf ../../../${{ env.PACKAGE_NAME }}.${{ matrix.rust_target }}.tar.gz fix-nested-directories
+          cd ../../../
+          sha256sum ${{ env.PACKAGE_NAME }}.${{ matrix.rust_target }}.tar.gz > checksums.${{ matrix.rust_target }}.txt
+
+      - name: Create release and upload binaries
+        uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          artifacts: "mqdish*.tar.gz,checksums.${{ matrix.rust_target }}.txt"
+          artifactContentType: application/gzip

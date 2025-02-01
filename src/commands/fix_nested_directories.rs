@@ -33,14 +33,11 @@ impl Iterator for DirWalker {
 
         // Read its entries, push subdirectories to the stack.
         if let Ok(entries) = fs::read_dir(&dir) {
-            for entry_res in entries {
-                if let Ok(entry) = entry_res {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        self.stack.push(path);
-                    }
-                }
-            }
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir())
+                .for_each(|path| self.stack.push(path));
         }
 
         // Yield the current directory.
@@ -54,7 +51,7 @@ fn count_nested_dirs(
 ) -> Result<usize, Box<dyn std::error::Error>> {
     let parent_name = dir.file_name().unwrap_or_else(|| {
         log::error!("Failed to get file name for {:?}", dir);
-        return OsStr::new("");
+        OsStr::new("")
     });
     let count = list_nested_items(dir)?
         .filter(|r| r.is_dir())
@@ -156,6 +153,7 @@ mod tests {
         skip_name_match: bool,
         nested_dir_name: &'static str,
         expect_moved: bool,
+        dry_run: bool,
     }
 
     #[test]
@@ -168,25 +166,35 @@ mod tests {
                 skip_name_match: false,
                 nested_dir_name: "nested",
                 expect_moved: false,
+                dry_run: false,
             },
             TestCase {
                 name: "should move files when skip_name_match is true",
                 skip_name_match: true,
                 nested_dir_name: "nested",
                 expect_moved: true,
+                dry_run: false,
             },
             TestCase {
                 name: "should move files when names match even if skip_name_match is false",
                 skip_name_match: false,
-                nested_dir_name: "nested",
+                nested_dir_name: "contents",
                 expect_moved: true,
+                dry_run: false,
+            },
+            TestCase {
+                name: "should not move files when dry_run is true",
+                skip_name_match: false,
+                nested_dir_name: "nested",
+                expect_moved: false,
+                dry_run: true,
             },
         ];
 
         for tc in test_cases {
             let (temp_dir, original_file) = setup_test_tree(tc.nested_dir_name);
 
-            fix_nested_directories(&temp_dir, tc.skip_name_match).unwrap();
+            fix_nested_directories(&temp_dir, tc.skip_name_match, tc.dry_run).unwrap();
 
             let expected_path = if tc.expect_moved {
                 temp_dir.join(CONTENTS_DIR_NAME).join("file.txt")
@@ -209,7 +217,8 @@ mod tests {
                     original_file
                 );
                 assert!(
-                    !fs::exists(&temp_dir.join(CONTENTS_DIR_NAME).join(tc.nested_dir_name)).unwrap(),
+                    !fs::exists(&temp_dir.join(CONTENTS_DIR_NAME).join(tc.nested_dir_name))
+                        .unwrap(),
                     "{}: nested directory should not exist at {:?}",
                     tc.name,
                     temp_dir.join(CONTENTS_DIR_NAME).join(tc.nested_dir_name)
